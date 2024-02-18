@@ -1,4 +1,4 @@
-import { getCategories } from "./mockedApi";
+import { Category } from './mockedApi';
 
 export interface CategoryListElement {
   name: string;
@@ -9,88 +9,61 @@ export interface CategoryListElement {
   showOnHome: boolean;
 }
 
-export const categoryTree = async (): Promise<CategoryListElement[]> => {
+const parseOrder = (item): number => {
+  const result = parseInt(item.Title);
+  return Number.isInteger(result) ? result : item.id;
+};
 
-  const res = await getCategories();
+const mapItems = (items): CategoryListElement[] => {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      const { id, name, MetaTagDescription: image, children } = item;
+      return {
+        id,
+        image,
+        name,
+        order: parseOrder(item),
+        children: mapItems(children),
+        showOnHome: false,
+      };
+    })
+    .sort((a, b) => a.order - b.order);
+};
 
-  if (!res.data) {
+const getItemsWithShowOnHomeSet = (items): CategoryListElement[] => {
+  const toShowOnHome = items.filter((item) => item.showOnHome);
+
+  let getShowingStrategy = (_item, index) => index < 3;
+
+  if (items.length <= 5) {
+    getShowingStrategy = () => true;
+  } else if (toShowOnHome.length > 0) {
+    getShowingStrategy = (item) =>
+      toShowOnHome.some((itemToShow) => itemToShow.id === item.id);
+  }
+
+  return items.map((item, index) => ({
+    ...item,
+    showOnHome: getShowingStrategy(item, index),
+  }));
+};
+
+export const categoryTree = async (
+  fetchFn: () => Promise<{ data: Category[] }>
+): Promise<CategoryListElement[]> => {
+  try {
+    const res = await fetchFn();
+
+    if (!res.data) {
+      return [];
+    }
+
+    const parsedItems = mapItems(res.data);
+
+    return getItemsWithShowOnHomeSet(parsedItems);
+  } catch (e) {
+    console.error('Fetch failed');
     return [];
   }
-
-  const toShowOnHome: number[] = [];
-
-  let result = res.data.map((c1) => {
-    let order = c1.Title;
-    if (c1.Title && c1.Title.includes("#")) {
-      order = c1.Title.split("#")[0];
-      toShowOnHome.push(c1.id);
-    }
-
-    let orderL1 = parseInt(order);
-    if (isNaN(orderL1)) {
-      orderL1 = c1.id;
-    }
-    let l2Kids = c1.children
-      ? c1.children.map((c2) => {
-          let order2 = c1.Title;
-          if (c2.Title && c2.Title.includes("#")) {
-            order2 = c2.Title.split("#")[0];
-          }
-          let orderL2 = parseInt(order2);
-          if (isNaN(orderL2)) {
-            orderL2 = c2.id;
-          }
-          let l3Kids = c2.children
-            ? c2.children.map((c3) => {
-                let order3 = c1.Title;
-                if (c3.Title && c3.Title.includes("#")) {
-                  order3 = c3.Title.split("#")[0];
-                }
-                let orderL3 = parseInt(order3);
-                if (isNaN(orderL3)) {
-                  orderL3 = c3.id;
-                }
-                return {
-                  id: c3.id,
-                  image: c3.MetaTagDescription,
-                  name: c3.name,
-                  order: orderL3,
-                  children: [],
-                  showOnHome: false,
-                };
-              })
-            : [];
-          l3Kids.sort((a, b) => a.order - b.order);
-          return {
-            id: c2.id,
-            image: c2.MetaTagDescription,
-            name: c2.name,
-            order: orderL2,
-            children: l3Kids,
-            showOnHome: false,
-          };
-        })
-      : [];
-    l2Kids.sort((a, b) => a.order - b.order);
-    return {
-      id: c1.id,
-      image: c1.MetaTagDescription,
-      name: c1.name,
-      order: orderL1,
-      children: l2Kids,
-      showOnHome: false,
-    };
-  });
-
-  result.sort((a, b) => a.order - b.order);
-
-  if (result.length <= 5) {
-    result.forEach((a) => (a.showOnHome = true));
-  } else if (toShowOnHome.length > 0) {
-    result.forEach((x) => (x.showOnHome = toShowOnHome.includes(x.id)));
-  } else {
-    result.forEach((x, index) => (x.showOnHome = index < 3));
-  }
-
-  return result;
 };
